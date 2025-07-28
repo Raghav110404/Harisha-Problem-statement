@@ -1,123 +1,92 @@
-# Harisha-Problem-statement#include
-<bits/stdc++.h>
-#include <boost/multiprecision/cpp_int.hpp>
-#include <nlohmann/json.hpp>
+#include <bits/stdc++.h>
 using namespace std;
-using namespace boost::multiprecision;
-using json = nlohmann::json;
+using ll = long long;
+struct Share {
+    ll x, y;
+    Share(ll _x, ll _y) : x(_x), y(_y) {}
+};
 
-// Function to calculate gcd
-cpp_int gcdCalc(cpp_int a, cpp_int b) {
-    while (b != 0) {
-        cpp_int temp = b;
-        b = a % b;
-        a = temp;
+// Function to compute modular inverse (used in Lagrange interpolation)
+ll modInverse(ll a, ll mod) {
+    ll m0 = mod, t, q;
+    ll x0 = 0, x1 = 1;
+    if (mod == 1) return 0;
+    while (a > 1) {
+        q = a / mod;
+        t = mod;
+        mod = a % mod, a = t;
+        t = x0;
+        x0 = x1 - q * x0;
+        x1 = t;
     }
-    return a;
+    return x1 < 0 ? x1 + m0 : x1;
 }
 
-// Function to calculate lcm
-cpp_int lcmCalc(cpp_int a, cpp_int b) {
-    return (a / gcdCalc(a, b)) * b;
-}
+ll lagrangeInterpolation(const vector<Share>& shares, ll mod = 1e9+7) {
+    ll result = 0;
+    int k = shares.size();
 
-// Function to evaluate the operation based on type
-cpp_int evaluateShare(string opType, vector<cpp_int> values) {
-    if (opType == "sum") {
-        cpp_int ans = 0;
-        for (auto v : values) ans += v;
-        return ans;
-    } else if (opType == "multiply") {
-        cpp_int ans = 1;
-        for (auto v : values) ans *= v;
-        return ans;
-    } else if (opType == "hcf") {
-        cpp_int ans = values[0];
-        for (size_t i = 1; i < values.size(); i++)
-            ans = gcdCalc(ans, values[i]);
-        return ans;
-    } else if (opType == "lcm") {
-        cpp_int ans = values[0];
-        for (size_t i = 1; i < values.size(); i++)
-            ans = lcmCalc(ans, values[i]);
-        return ans;
-    }
-    return 0;
-}
-
-// Lagrange Interpolation to reconstruct secret
-cpp_int lagrangeInterpolation(vector<pair<cpp_int, cpp_int>> shares, int k) {
-    cpp_int secret = 0;
-    for (int i = 0; i < k; i++) {
-        cpp_int xi = shares[i].first;
-        cpp_int yi = shares[i].second;
-        cpp_int num = 1, denom = 1;
-        for (int j = 0; j < k; j++) {
-            if (i == j) continue;
-            num *= (0 - shares[j].first);
-            denom *= (xi - shares[j].first);
+    for (int i = 0; i < k; ++i) {
+        ll xi = shares[i].x;
+        ll yi = shares[i].y;
+        ll term = yi;
+        for (int j = 0; j < k; ++j) {
+            if (i != j) {
+                ll xj = shares[j].x;
+                term = term * (mod - xj) % mod;
+                term = term * modInverse((xi - xj + mod) % mod, mod) % mod;
+            }
         }
-        secret += yi * (num / denom);
+        result = (result + term) % mod;
+    }
+
+    return result;
+}
+
+void generateCombinations(const vector<Share>& shares, int k, int start, vector<Share>& temp, vector<vector<Share>>& result) {
+    if (temp.size() == k) {
+        result.push_back(temp);
+        return;
+    }
+    for (int i = start; i < shares.size(); ++i) {
+        temp.push_back(shares[i]);
+        generateCombinations(shares, k, i + 1, temp, result);
+        temp.pop_back();
+    }
+}
+
+ll recoverSecret(vector<Share> shares, int k, ll mod = 1e9+7) {
+    map<ll, int> freq;
+    vector<vector<Share>> combinations;
+    vector<Share> temp;
+    generateCombinations(shares, k, 0, temp, combinations);
+
+    for (auto& comb : combinations) {
+        ll secret = lagrangeInterpolation(comb, mod);
+        freq[secret]++;
+    }
+
+    ll maxFreq = 0, secret = -1;
+    for (auto& p : freq) {
+        if (p.second > maxFreq) {
+            maxFreq = p.second;
+            secret = p.first;
+        }
     }
     return secret;
 }
 
 int main() {
-    // Reading JSON input
-    ifstream inFile("input.json");
-    if (!inFile.is_open()) {
-        cerr << "Error: Could not open input.json" << endl;
-        return 1;
-    }
+    int n = 5, k = 3;
+    vector<Share> shares = {
+        Share(1, 147),
+        Share(2, 309),
+        Share(3, 537),
+        Share(4, 825),
+        Share(5, 1185)  // Add or modify according to JSON input
+    };
 
-    json input;
-    inFile >> input;
-
-    int n = input["n"];
-    int k = input["k"];
-
-    vector<pair<cpp_int, cpp_int>> shares;
-
-    // Parsing all shares
-    for (auto &item : input["shares"]) {
-        cpp_int key = item["key"].get<int>();
-        string opType = item["op"];
-        vector<cpp_int> values;
-        for (auto &v : item["values"]) values.push_back(v.get<int>());
-        cpp_int val = evaluateShare(opType, values);
-        shares.push_back({key, val});
-    }
-
-    // Generate all combinations of k shares
-    vector<cpp_int> secrets;
-    vector<int> idx(n);
-    fill(idx.begin(), idx.begin() + k, 1);
-
-    do {
-        vector<pair<cpp_int, cpp_int>> selected;
-        for (int i = 0; i < n; i++)
-            if (idx[i]) selected.push_back(shares[i]);
-
-        cpp_int secret = lagrangeInterpolation(selected, k);
-        secrets.push_back(secret);
-
-    } while (prev_permutation(idx.begin(), idx.end()));
-
-    // Find the most common secret
-    map<string, int> freq;
-    string finalSecret;
-    int maxFreq = 0;
-
-    for (auto &s : secrets) {
-        string str = s.convert_to<string>();
-        freq[str]++;
-        if (freq[str] > maxFreq) {
-            maxFreq = freq[str];
-            finalSecret = str;
-        }
-    }
-
-    cout << "✅ The secret is: " << finalSecret << endl;
+    ll secret = recoverSecret(shares, k);
+    cout << "Recovered Secret: " << secret << endl;
     return 0;
 }
-
